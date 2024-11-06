@@ -40,21 +40,55 @@ jobs:
           curl -f http://localhost:5000/convert?from=meters&to=kilometers&value=1000
           docker stop test-container
 
-  version-staging:
+  determine-version:
+    runs-on: ubuntu-latest
     needs: build-and-test
+    outputs:
+      new_version: ${{ steps.set-version.outputs.NEW_VERSION }}
+    steps:
+      - name: Check out the code
+        uses: actions/checkout@v2
+
+      - name: Fetch all tags
+        run: git fetch --tags
+
+      - name: Determine new version
+        id: set-version
+        run: |
+          # Get the latest tag
+          latest_tag=$(git describe --tags `git rev-list --tags --max-count=1`)
+          echo "Latest tag: $latest_tag"
+
+          # Extract the version numbers
+          major=$(echo $latest_tag | cut -d. -f1 | sed 's/v//')
+          minor=$(echo $latest_tag | cut -d. -f2)
+          patch=$(echo $latest_tag | cut -d. -f3)
+
+          # Determine if this is a major, minor, or patch update
+          if git log -1 --pretty=%B | grep -q '#major'; then
+            major=$((major + 1))
+            minor=0
+            patch=0
+          elif git log -1 --pretty=%B | grep -q '#minor'; then
+            minor=$((minor + 1))
+            patch=0
+          else
+            patch=$((patch + 1))
+          fi
+
+          # Create the new version string
+          new_version="v${major}.${minor}.${patch}"
+          echo "New version: $new_version"
+
+          # Export the new version
+          echo "NEW_VERSION=$new_version" >> $GITHUB_ENV
+          echo "::set-output name=NEW_VERSION::$new_version"
+
+  publish-staging:
+    needs: [build-and-test, determine-version]
     runs-on: ubuntu-latest
     if: github.event_name == 'pull_request'
     steps:
-      - name: Increment Semantic Version for Staging
-        id: tag
-        uses: anothrNick/github-tag-action@v1
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          semver: preminor  # Incremento menor de pré-lançamento para staging
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v2
-
       - name: Log in to Docker Hub
         uses: docker/login-action@v2
         with:
@@ -63,24 +97,14 @@ jobs:
 
       - name: Push Staging Image
         run: |
-          docker tag $IMAGE_NAME:latest $IMAGE_NAME:${{ steps.tag.outputs.new_tag }}-staging
-          docker push $IMAGE_NAME:${{ steps.tag.outputs.new_tag }}-staging
+          docker tag $IMAGE_NAME:latest $IMAGE_NAME:${{ needs.determine-version.outputs.new_version }}-staging
+          docker push $IMAGE_NAME:${{ needs.determine-version.outputs.new_version }}-staging
 
-  version-homolog:
-    needs: build-and-test
+  publish-homolog:
+    needs: [build-and-test, determine-version]
     runs-on: ubuntu-latest
     if: github.event_name == 'pull_request' && github.event.pull_request.merged
     steps:
-      - name: Increment Semantic Version for Homolog
-        id: tag
-        uses: anothrNick/github-tag-action@v1
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          semver: minor  # Incremento menor para homolog
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v2
-
       - name: Log in to Docker Hub
         uses: docker/login-action@v2
         with:
@@ -89,24 +113,14 @@ jobs:
 
       - name: Push Homolog Image
         run: |
-          docker tag $IMAGE_NAME:latest $IMAGE_NAME:${{ steps.tag.outputs.new_tag }}-homolog
-          docker push $IMAGE_NAME:${{ steps.tag.outputs.new_tag }}-homolog
+          docker tag $IMAGE_NAME:latest $IMAGE_NAME:${{ needs.determine-version.outputs.new_version }}-homolog
+          docker push $IMAGE_NAME:${{ needs.determine-version.outputs.new_version }}-homolog
 
-  version-production:
-    needs: build-and-test
+  publish-production:
+    needs: [build-and-test, determine-version]
     runs-on: ubuntu-latest
     if: github.ref == 'refs/heads/main'
     steps:
-      - name: Increment Semantic Version for Production
-        id: tag
-        uses: anothrNick/github-tag-action@v1
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          semver: patch  # Incremento de patch para produção
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v2
-
       - name: Log in to Docker Hub
         uses: docker/login-action@v2
         with:
@@ -115,5 +129,5 @@ jobs:
 
       - name: Push Production Image
         run: |
-          docker tag $IMAGE_NAME:latest $IMAGE_NAME:${{ steps.tag.outputs.new_tag }}
-          docker push $IMAGE_NAME:${{ steps.tag.outputs.new_tag }}
+          docker tag $IMAGE_NAME:latest $IMAGE_NAME:${{ needs.determine-version.outputs.new_version }}
+          docker push $IMAGE_NAME:${{ needs.determine-version.outputs.new_version }}

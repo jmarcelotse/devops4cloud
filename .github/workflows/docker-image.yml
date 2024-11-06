@@ -40,7 +40,7 @@ jobs:
 
           # Aguardar o contêiner iniciar completamente
           echo "Aguardando a inicialização do contêiner..."
-          sleep 10
+          sleep 30
 
           # Testa a aplicação
           if curl -f http://localhost:5000/convert?from=meters&to=kilometers&value=1000; then

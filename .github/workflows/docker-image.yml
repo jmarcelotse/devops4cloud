@@ -1,23 +1,18 @@
-name: Docker CI/CD Pipeline with Semantic Versioning
+name: CI/CD for Production
 
 on:
   pull_request:
     branches:
       - main
-      - homolog
-
-  push:
-    branches:
-      - main
+    types: [closed]
 
 env:
   IMAGE_NAME: ${{ secrets.DOCKER_USERNAME }}/conversao-distancia
 
 jobs:
-  build-and-test:
+  build-and-deploy-production:
+    if: github.event.pull_request.merged == true && github.event.pull_request.base.ref == 'main'
     runs-on: ubuntu-latest
-    outputs:
-      image_tag: ${{ steps.tag-image.outputs.image_tag }}
     steps:
       - name: Check out the code
         uses: actions/checkout@v2
@@ -31,21 +26,9 @@ jobs:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
 
-      - name: Build Docker image
-        id: tag-image
+      - name: Build Docker image for Production
         run: |
           docker build -t $IMAGE_NAME:latest .
-          echo "::set-output name=image_tag::latest"
-
-      - name: Verify Docker image
-        run: |
-          if ! docker images $IMAGE_NAME | grep -q "latest"; then
-            echo "Error: Image $IMAGE_NAME:latest was not built."
-            exit 1
-          fi
-
-      - name: Push Latest Image to Docker Hub
-        run: |
           docker push $IMAGE_NAME:latest
 
       - name: Run Application Tests
@@ -58,7 +41,7 @@ jobs:
           sleep 10
 
           # Testa a aplicação
-          if curl -f http://localhost:5000; then
+          if curl -f http://localhost:5000/convert?from=meters&to=kilometers&value=1000; then
             echo "Teste de API bem-sucedido!"
           else
             echo "Erro na API. Logs do contêiner:"
@@ -68,107 +51,3 @@ jobs:
 
           # Para o contêiner após os testes
           docker stop test-container
-
-  determine-version:
-    runs-on: ubuntu-latest
-    needs: build-and-test
-    outputs:
-      new_version: ${{ steps.set-version.outputs.NEW_VERSION }}
-    steps:
-      - name: Check out the code
-        uses: actions/checkout@v2
-
-      - name: Fetch all tags
-        run: git fetch --tags
-
-      - name: Determine new version
-        id: set-version
-        run: |
-          # Get the latest tag, or set a default if none are found
-          latest_tag=$(git describe --tags `git rev-list --tags --max-count=1` || echo "v0.0.0")
-          echo "Latest tag: $latest_tag"
-
-          # Extract the version numbers
-          major=$(echo $latest_tag | cut -d. -f1 | sed 's/v//')
-          minor=$(echo $latest_tag | cut -d. -f2)
-          patch=$(echo $latest_tag | cut -d. -f3)
-
-          # Determine if this is a major, minor, or patch update
-          if git log -1 --pretty=%B | grep -q '#major'; then
-            major=$((major + 1))
-            minor=0
-            patch=0
-          elif git log -1 --pretty=%B | grep -q '#minor'; then
-            minor=$((minor + 1))
-            patch=0
-          else
-            patch=$((patch + 1))
-          fi
-
-          # Create the new version string
-          new_version="v${major}.${minor}.${patch}"
-          echo "New version: $new_version"
-
-          # Export the new version
-          echo "NEW_VERSION=$new_version" >> $GITHUB_ENV
-          echo "::set-output name=NEW_VERSION::$new_version"
-
-  publish-staging:
-    needs: [build-and-test, determine-version]
-    runs-on: ubuntu-latest
-    if: github.event_name == 'pull_request'
-    steps:
-      - name: Log in to Docker Hub
-        uses: docker/login-action@v2
-        with:
-          username: ${{ secrets.DOCKER_USERNAME }}
-          password: ${{ secrets.DOCKER_PASSWORD }}
-
-      - name: Pull Latest Image
-        run: |
-          docker pull $IMAGE_NAME:latest
-
-      - name: Push Staging Image
-        run: |
-          docker tag $IMAGE_NAME:latest $IMAGE_NAME:${{ needs.determine-version.outputs.new_version }}-staging
-          docker push $IMAGE_NAME:${{ needs.determine-version.outputs.new_version }}-staging
-
-  publish-homolog:
-    needs: [build-and-test, determine-version]
-    runs-on: ubuntu-latest
-    if: github.event_name == 'pull_request' && github.event.pull_request.merged
-    steps:
-      - name: Log in to Docker Hub
-        uses: docker/login-action@v2
-        with:
-          username: ${{ secrets.DOCKER_USERNAME }}
-          password: ${{ secrets.DOCKER_PASSWORD }}
-
-      - name: Pull Latest Image
-        run: |
-          docker pull $IMAGE_NAME:latest
-
-      - name: Push Homolog Image
-        run: |
-          docker tag $IMAGE_NAME:latest $IMAGE_NAME:${{ needs.determine-version.outputs.new_version }}-homolog
-          docker push $IMAGE_NAME:${{ needs.determine-version.outputs.new_version }}-homolog
-
-  publish-production:
-    needs: [build-and-test, determine-version]
-    runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main'
-    steps:
-      - name: Log in to Docker Hub
-        uses: docker/login-action@v2
-        with:
-          username: ${{ secrets.DOCKER_USERNAME }}
-          password: ${{ secrets.DOCKER_PASSWORD }}
-
-      - name: Pull Latest Image
-        run: |
-          docker pull $IMAGE_NAME:latest
-
-      - name: Push Production Image
-        run: |
-          docker tag $IMAGE_NAME:latest $IMAGE_NAME:${{ needs.determine-version.outputs.new_version }}
-          docker push $IMAGE_NAME:${{ needs.determine-version.outputs.new_version }}

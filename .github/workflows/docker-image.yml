@@ -35,9 +35,9 @@ jobs:
 
       - name: Run Application Tests
         run: |
-          docker run --rm -d -p 8282:5000 --name test-container $IMAGE_NAME:latest
+          docker run --rm -d -p 5000:5000 --name test-container $IMAGE_NAME:latest
           sleep 5  # Espera o contêiner iniciar
-          curl -f http://localhost:8282/convert?from=meters&to=kilometers&value=1000
+          curl -f http://localhost:5000/convert?from=meters&to=kilometers&value=1000
           docker stop test-container
 
   version-staging:
@@ -47,7 +47,7 @@ jobs:
     steps:
       - name: Increment Semantic Version for Staging
         id: tag
-        uses: anothrNick/github-tag-action@v1.37.0
+        uses: anothrNick/github-tag-action@v1
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           semver: preminor  # Incremento menor de pré-lançamento para staging
@@ -73,7 +73,7 @@ jobs:
     steps:
       - name: Increment Semantic Version for Homolog
         id: tag
-        uses: anothrNick/github-tag-action@v1.37.0
+        uses: anothrNick/github-tag-action@v1
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           semver: minor  # Incremento menor para homolog
@@ -99,7 +99,7 @@ jobs:
     steps:
       - name: Increment Semantic Version for Production
         id: tag
-        uses: anothrNick/github-tag-action@v1.37.0
+        uses: anothrNick/github-tag-action@v1
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           semver: patch  # Incremento de patch para produção

@@ -35,9 +35,23 @@ jobs:
 
       - name: Run Application Tests
         run: |
+          # Inicia o contêiner
           docker run --rm -d -p 5000:5000 --name test-container $IMAGE_NAME:latest
-          sleep 5  # Espera o contêiner iniciar
-          curl -f http://localhost:5000/convert?from=meters&to=kilometers&value=1000
+
+          # Aguardar o contêiner iniciar completamente
+          echo "Aguardando a inicialização do contêiner..."
+          sleep 10
+
+          # Testa a aplicação
+          if curl -f http://localhost:5000/convert?from=meters&to=kilometers&value=1000; then
+            echo "Teste de API bem-sucedido!"
+          else
+            echo "Erro na API. Logs do contêiner:"
+            docker logs test-container
+            exit 1
+          fi
+
+          # Para o contêiner após os testes
           docker stop test-container
 
   determine-version:

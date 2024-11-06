@@ -78,7 +78,6 @@ jobs:
   determine-version:
     runs-on: ubuntu-latest
     needs: build-and-test
-    if: github.event.pull_request.merged == true && github.ref == 'refs/heads/main'
     outputs:
       new_version: ${{ steps.set-version.outputs.NEW_VERSION }}
     steps:
@@ -112,7 +111,7 @@ jobs:
           echo "::set-output name=NEW_VERSION::$new_version"
 
   publish-staging:
-    needs: [build-and-test]
+    needs: [build-and-test, determine-version]
     if: github.ref == 'refs/heads/develop'
     runs-on: ubuntu-latest
     steps:
@@ -126,11 +125,11 @@ jobs:
           docker pull $IMAGE_NAME:develop
       - name: Push Staging Image
         run: |
-          docker tag $IMAGE_NAME:develop $IMAGE_NAME:staging
-          docker push $IMAGE_NAME:staging
+          docker tag $IMAGE_NAME:develop $IMAGE_NAME:${{ needs.determine-version.outputs.new_version }}-staging
+          docker push $IMAGE_NAME:${{ needs.determine-version.outputs.new_version }}-staging
 
   publish-homolog:
-    needs: [build-and-test]
+    needs: [build-and-test, determine-version]
     if: github.ref == 'refs/heads/homolog'
     runs-on: ubuntu-latest
     steps:
@@ -144,8 +143,8 @@ jobs:
           docker pull $IMAGE_NAME:homolog
       - name: Push Homolog Image
         run: |
-          docker tag $IMAGE_NAME:homolog $IMAGE_NAME:homolog
-          docker push $IMAGE_NAME:homolog
+          docker tag $IMAGE_NAME:homolog $IMAGE_NAME:${{ needs.determine-version.outputs.new_version }}-homolog
+          docker push $IMAGE_NAME:${{ needs.determine-version.outputs.new_version }}-homolog
 
   publish-production:
     needs: [build-and-test, determine-version]

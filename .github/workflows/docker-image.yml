@@ -16,6 +16,8 @@ env:
 jobs:
   build-and-test:
     runs-on: ubuntu-latest
+    outputs:
+      image_tag: ${{ steps.tag-image.outputs.image_tag }}
     steps:
       - name: Check out the code
         uses: actions/checkout@v2
@@ -30,9 +32,11 @@ jobs:
           password: ${{ secrets.DOCKER_PASSWORD }}
 
       - name: Build Docker image
+        id: tag-image
         run: |
           docker build -t $IMAGE_NAME:latest .
-        
+          echo "::set-output name=image_tag::latest"
+
       - name: Verify Docker image
         run: |
           if ! docker images $IMAGE_NAME | grep -q "latest"; then
@@ -50,7 +54,7 @@ jobs:
           sleep 10
 
           # Testa a aplicação
-          if curl -f http://localhost:5000; then
+          if curl -f http://localhost:5000/convert?from=meters&to=kilometers&value=1000; then
             echo "Teste de API bem-sucedido!"
           else
             echo "Erro na API. Logs do contêiner:"
@@ -118,7 +122,7 @@ jobs:
 
       - name: Push Staging Image
         run: |
-          docker tag $IMAGE_NAME:latest $IMAGE_NAME:${{ needs.determine-version.outputs.new_version }}-staging
+          docker tag $IMAGE_NAME:${{ needs.build-and-test.outputs.image_tag }} $IMAGE_NAME:${{ needs.determine-version.outputs.new_version }}-staging
           docker push $IMAGE_NAME:${{ needs.determine-version.outputs.new_version }}-staging
 
   publish-homolog:
@@ -134,7 +138,7 @@ jobs:
 
       - name: Push Homolog Image
         run: |
-          docker tag $IMAGE_NAME:latest $IMAGE_NAME:${{ needs.determine-version.outputs.new_version }}-homolog
+          docker tag $IMAGE_NAME:${{ needs.build-and-test.outputs.image_tag }} $IMAGE_NAME:${{ needs.determine-version.outputs.new_version }}-homolog
           docker push $IMAGE_NAME:${{ needs.determine-version.outputs.new_version }}-homolog
 
   publish-production:
@@ -150,5 +154,5 @@ jobs:
 
       - name: Push Production Image
         run: |
-          docker tag $IMAGE_NAME:latest $IMAGE_NAME:${{ needs.determine-version.outputs.new_version }}
+          docker tag $IMAGE_NAME:${{ needs.build-and-test.outputs.image_tag }} $IMAGE_NAME:${{ needs.determine-version.outputs.new_version }}
           docker push $IMAGE_NAME:${{ needs.determine-version.outputs.new_version }}

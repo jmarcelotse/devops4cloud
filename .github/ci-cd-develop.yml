@@ -1,15 +1,19 @@
-name: CI/CD for Development
+name: Docker CI/CD Pipeline with Semantic Versioning
 
 on:
   push:
     branches:
       - develop
+  pull_request:
+    branches:
+      - main
+    types: [closed]
 
 env:
   IMAGE_NAME: ${{ secrets.DOCKER_USERNAME }}/conversao-distancia
 
 jobs:
-  build-and-deploy-develop:
+  build-and-deploy:
     runs-on: ubuntu-latest
     steps:
       - name: Check out the code
@@ -24,14 +28,32 @@ jobs:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
 
+      - name: Determine Deployment Environment
+        id: env
+        run: |
+          if [ "${{ github.event_name }}" == "push" ]; then
+            echo "Running in Development environment (develop)"
+            echo "TAG=develop" >> $GITHUB_ENV
+          elif [ "${{ github.event_name }}" == "pull_request" ] && [ "${{ github.event.pull_request.merged }}" == "true" ] && [ "${{ github.event.pull_request.base.ref }}" == "main" ]; then
+            echo "Running in Production environment (main)"
+            echo "TAG=latest" >> $GITHUB_ENV
+          else
+            echo "No valid deployment condition met. Exiting."
+            exit 0
+
       - name: Build Docker image
         run: |
-          docker build -t $IMAGE_NAME:develop .
-          docker push $IMAGE_NAME:develop
+          docker build -t $IMAGE_NAME:$TAG .
+
+      - name: Push Docker image to Docker Hub
+        if: env(TAG) != null
+        run: |
+          docker push $IMAGE_NAME:$TAG
 
       - name: Run Application Tests
+        if: env(TAG) == 'develop' || env(TAG) == 'latest'
         run: |
-          docker run --rm -d -p 5000:5000 --name test-container $IMAGE_NAME:develop
+          docker run --rm -d -p 5000:5000 --name test-container $IMAGE_NAME:$TAG
           echo "Aguardando a inicialização do contêiner..."
           sleep 10
 

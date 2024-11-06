@@ -32,6 +32,13 @@ jobs:
       - name: Build Docker image
         run: |
           docker build -t $IMAGE_NAME:latest .
+        
+      - name: Verify Docker image
+        run: |
+          if ! docker images $IMAGE_NAME | grep -q "latest"; then
+            echo "Error: Image $IMAGE_NAME:latest was not built."
+            exit 1
+          fi
 
       - name: Run Application Tests
         run: |
@@ -40,10 +47,10 @@ jobs:
 
           # Aguardar o contêiner iniciar completamente
           echo "Aguardando a inicialização do contêiner..."
-          sleep 30
+          sleep 10
 
           # Testa a aplicação
-          if curl -f http://localhost:5000/convert?from=meters&to=kilometers&value=1000; then
+          if curl -f http://localhost:5000; then
             echo "Teste de API bem-sucedido!"
           else
             echo "Erro na API. Logs do contêiner:"

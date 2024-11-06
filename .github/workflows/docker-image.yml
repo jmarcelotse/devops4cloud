@@ -5,7 +5,6 @@ on:
     branches:
       - develop
       - homolog
-      - main
 
   pull_request:
     branches:
@@ -15,9 +14,10 @@ env:
   IMAGE_NAME: ${{ secrets.DOCKER_USERNAME }}/conversao-distancia
 
 jobs:
-  build-and-publish-develop:
-    if: github.ref == 'refs/heads/develop'
+  build-and-test:
     runs-on: ubuntu-latest
+    outputs:
+      image_tag: ${{ steps.tag-image.outputs.image_tag }}
     steps:
       - name: Check out the code
         uses: actions/checkout@v2
@@ -31,34 +31,46 @@ jobs:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
 
-      - name: Build and Push Develop Image
+      - name: Build Docker image
+        id: tag-image
         run: |
-          docker build -t $IMAGE_NAME:develop .
-          docker push $IMAGE_NAME:develop
+          if [[ "${GITHUB_REF}" == "refs/heads/develop" ]]; then
+            docker build -t $IMAGE_NAME:develop .
+          elif [[ "${GITHUB_REF}" == "refs/heads/homolog" ]]; then
+            docker build -t $IMAGE_NAME:homolog .
+          elif [[ "${GITHUB_REF}" == "refs/heads/main" ]]; then
+            docker build -t $IMAGE_NAME:latest .
+          fi
+          echo "::set-output name=image_tag::${GITHUB_REF##*/}"
 
-  build-and-publish-homolog:
-    if: github.ref == 'refs/heads/homolog'
-    runs-on: ubuntu-latest
-    steps:
-      - name: Check out the code
-        uses: actions/checkout@v2
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v2
-
-      - name: Log in to Docker Hub
-        uses: docker/login-action@v2
-        with:
-          username: ${{ secrets.DOCKER_USERNAME }}
-          password: ${{ secrets.DOCKER_PASSWORD }}
-
-      - name: Build and Push Homolog Image
+      - name: Verify Docker image
         run: |
-          docker build -t $IMAGE_NAME:homolog .
-          docker push $IMAGE_NAME:homolog
+          if ! docker images $IMAGE_NAME | grep -q "${GITHUB_REF##*/}"; then
+            echo "Error: Image $IMAGE_NAME:${GITHUB_REF##*/} was not built."
+            exit 1
+          fi
+
+      - name: Push Image to Docker Hub
+        run: |
+          docker push $IMAGE_NAME:${GITHUB_REF##*/}
+
+      - name: Run Application Tests
+        run: |
+          docker run --rm -d -p 5000:5000 --name test-container $IMAGE_NAME:${GITHUB_REF##*/}
+          echo "Aguardando a inicialização do contêiner..."
+          sleep 10
+          if curl -f http://localhost:5000/; then
+            echo "Teste de API bem-sucedido!"
+          else
+            echo "Erro na API. Logs do contêiner:"
+            docker logs test-container
+            exit 1
+          fi
+          docker stop test-container
 
   determine-version:
     runs-on: ubuntu-latest
+    needs: build-and-test
     if: github.ref == 'refs/heads/main'
     outputs:
       new_version: ${{ steps.set-version.outputs.NEW_VERSION }}
@@ -88,32 +100,60 @@ jobs:
             patch=$((patch + 1))
           fi
           new_version="v${major}.${minor}.${patch}"
+          echo "New version: $new_version"
           echo "NEW_VERSION=$new_version" >> $GITHUB_ENV
           echo "::set-output name=NEW_VERSION::$new_version"
 
-  build-and-publish-production:
-    if: github.event_name == 'pull_request' && github.event.pull_request.merged && github.ref == 'refs/heads/main'
+  publish-staging:
+    needs: [build-and-test, determine-version]
+    if: github.ref == 'refs/heads/develop'
     runs-on: ubuntu-latest
-    needs: determine-version
     steps:
-      - name: Check out the code
-        uses: actions/checkout@v2
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v2
-
       - name: Log in to Docker Hub
         uses: docker/login-action@v2
         with:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
-
-      - name: Build Production Image with Version
+      - name: Pull Latest Image
         run: |
-          docker build -t $IMAGE_NAME:latest .
-          docker tag $IMAGE_NAME:latest $IMAGE_NAME:${{ needs.determine-version.outputs.new_version }}
+          docker pull $IMAGE_NAME:develop
+      - name: Push Staging Image
+        run: |
+          docker tag $IMAGE_NAME:develop $IMAGE_NAME:staging
+          docker push $IMAGE_NAME:staging
 
+  publish-homolog:
+    needs: [build-and-test, determine-version]
+    if: github.ref == 'refs/heads/homolog'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v2
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+      - name: Pull Latest Image
+        run: |
+          docker pull $IMAGE_NAME:homolog
+      - name: Push Homolog Image
+        run: |
+          docker tag $IMAGE_NAME:homolog $IMAGE_NAME:homolog
+          docker push $IMAGE_NAME:homolog
+
+  publish-production:
+    needs: [build-and-test, determine-version]
+    if: github.event_name == 'pull_request' && github.event.pull_request.merged && github.base_ref == 'main'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v2
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+      - name: Pull Latest Image
+        run: |
+          docker pull $IMAGE_NAME:latest
       - name: Push Production Image
         run: |
-          docker push $IMAGE_NAME:latest
+          docker tag $IMAGE_NAME:latest $IMAGE_NAME:${{ needs.determine-version.outputs.new_version }}
           docker push $IMAGE_NAME:${{ needs.determine-version.outputs.new_version }}

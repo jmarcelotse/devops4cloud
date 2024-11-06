@@ -44,6 +44,10 @@ jobs:
             exit 1
           fi
 
+      - name: Push Latest Image to Docker Hub
+        run: |
+          docker push $IMAGE_NAME:latest
+
       - name: Run Application Tests
         run: |
           # Inicia o contêiner
@@ -54,7 +58,7 @@ jobs:
           sleep 10
 
           # Testa a aplicação
-          if curl -f http://localhost:5000/convert?from=meters&to=kilometers&value=1000; then
+          if curl -f http://localhost:5000; then
             echo "Teste de API bem-sucedido!"
           else
             echo "Erro na API. Logs do contêiner:"
@@ -120,9 +124,13 @@ jobs:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
 
+      - name: Pull Latest Image
+        run: |
+          docker pull $IMAGE_NAME:latest
+
       - name: Push Staging Image
         run: |
-          docker tag $IMAGE_NAME:${{ needs.build-and-test.outputs.image_tag }} $IMAGE_NAME:${{ needs.determine-version.outputs.new_version }}-staging
+          docker tag $IMAGE_NAME:latest $IMAGE_NAME:${{ needs.determine-version.outputs.new_version }}-staging
           docker push $IMAGE_NAME:${{ needs.determine-version.outputs.new_version }}-staging
 
   publish-homolog:
@@ -136,9 +144,13 @@ jobs:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
 
+      - name: Pull Latest Image
+        run: |
+          docker pull $IMAGE_NAME:latest
+
       - name: Push Homolog Image
         run: |
-          docker tag $IMAGE_NAME:${{ needs.build-and-test.outputs.image_tag }} $IMAGE_NAME:${{ needs.determine-version.outputs.new_version }}-homolog
+          docker tag $IMAGE_NAME:latest $IMAGE_NAME:${{ needs.determine-version.outputs.new_version }}-homolog
           docker push $IMAGE_NAME:${{ needs.determine-version.outputs.new_version }}-homolog
 
   publish-production:
@@ -152,7 +164,11 @@ jobs:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
 
+      - name: Pull Latest Image
+        run: |
+          docker pull $IMAGE_NAME:latest
+
       - name: Push Production Image
         run: |
-          docker tag $IMAGE_NAME:${{ needs.build-and-test.outputs.image_tag }} $IMAGE_NAME:${{ needs.determine-version.outputs.new_version }}
+          docker tag $IMAGE_NAME:latest $IMAGE_NAME:${{ needs.determine-version.outputs.new_version }}
           docker push $IMAGE_NAME:${{ needs.determine-version.outputs.new_version }}

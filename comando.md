@@ -83,3 +83,4 @@ docker system prune -a --volumes
 docker container run -d -p 8282:5000 jmarcelotse/conversao-distancia:v1
 ```
 ```
+docker build -t jmarcelotse/conversao-distancia:v2 -f Dockerfile --push .
